@@ -19,10 +19,10 @@ const Login = ({ navigation }) => {
         setErrorMessage(error.message);
       });
   };
-
+// { color: 'black' }
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Login</Text>
+      <Text style={styles.title}>Login Here</Text>
       {errorMessage ? <Text style={styles.error}>{errorMessage}</Text> : null}
       <TextInput
         style={styles.input}
@@ -30,10 +30,12 @@ const Login = ({ navigation }) => {
         value={email}
         onChangeText={setEmail}
         autoCapitalize="none"
+        placeholderTextColor="gray"
       />
       <TextInput
         style={styles.input}
         placeholder="Password"
+        placeholderTextColor="gray"
         value={password}
         onChangeText={setPassword}
         secureTextEntry
@@ -55,6 +57,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 24,
     marginBottom: 20,
+    color:'#000'
   },
   input: {
     width: '100%',
@@ -63,6 +66,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     marginBottom: 10,
     paddingHorizontal: 10,
+    color:'#000'
   },
   error: {
     color: 'red',

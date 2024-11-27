@@ -1,38 +1,75 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, Button, FlatList, StyleSheet, TouchableOpacity, Platform } from 'react-native';
+import { View, Text, TextInput, Button, FlatList, StyleSheet } from 'react-native';
 import { firestore, auth } from '../firebaseConfig';
-import * as ImagePicker from 'react-native-image-picker';
-import * as DocumentPicker from 'react-native-document-picker';
 import moment from 'moment';
 
 const Chat = ({ route }) => {
   const { user } = route.params;
   const [message, setMessage] = useState('');
-  const [messages, setMessages] = useState([]);
-  const [media, setMedia] = useState(null);
+  const [groupedMessages, setGroupedMessages] = useState([]);
 
   useEffect(() => {
     console.log("Fetching messages for current user:", auth.currentUser.uid);
-    const unsubscribe = firestore.collection('messages')
+
+    const unsubscribe = firestore
+      .collection('messages')
       .where('users', 'array-contains', auth.currentUser.uid)
       .orderBy('createdAt', 'desc')
-      .onSnapshot(querySnapshot => {
-        if(querySnapshot){
-        const messages = querySnapshot.docs.map(doc => ({
-          _id: doc.id,
-          text: doc.data().text,
-          createdAt: doc.data().createdAt.toDate(),
-          user: doc.data().user || null,
-          media: doc.data().media || null,
-        }));
-        setMessages(messages);
-      } else{
-        console.error("Error fetching messages: QuerySnapshot is null");
-      }
-      });
+      .onSnapshot(
+        (querySnapshot) => {
+          if (!querySnapshot.empty) {
+            console.log("QuerySnapshot size:", querySnapshot.size);
+
+            const messages = querySnapshot.docs.map((doc) => ({
+              _id: doc.id,
+              text: doc.data().text,
+              createdAt: doc.data().createdAt?.toDate() || new Date(),
+              user: doc.data().user || null,
+            }));
+
+            const grouped = groupMessagesByDate(messages);
+            setGroupedMessages(grouped);
+          } else {
+            console.warn("No messages found for current user.");
+          }
+        },
+        (error) => {
+          console.error("Error fetching messages:", error);
+        }
+      );
 
     return () => unsubscribe();
   }, []);
+
+  const groupMessagesByDate = (messages) => {
+    const grouped = [];
+    const today = moment().startOf('day');
+    const yesterday = moment().subtract(1, 'days').startOf('day');
+
+    let currentLabel = '';
+
+    messages.forEach((msg) => {
+      const messageDate = moment(msg.createdAt).startOf('day');
+      let label;
+
+      if (messageDate.isSame(today, 'day')) {
+        label = 'Today';
+      } else if (messageDate.isSame(yesterday, 'day')) {
+        label = 'Yesterday';
+      } else {
+        label = messageDate.format('LL'); // e.g., "October 1, 2024"
+      }
+
+      if (currentLabel !== label) {
+        grouped.push({ type: 'date', label });
+        currentLabel = label;
+      }
+
+      grouped.push({ type: 'message', ...msg });
+    });
+
+    return grouped;
+  };
 
   const handleSend = () => {
     const { uid, email } = auth.currentUser;
@@ -45,67 +82,39 @@ const Chat = ({ route }) => {
         email,
       },
       users: [uid, user.uid],
-      media,
     });
     setMessage('');
-    setMedia(null);
-  };
-
-  const pickImage = async () => {
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        alert('Sorry, we need camera roll permissions to make this work!');
-      }
-    }
-
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 1,
-    });
-
-    if (!result.cancelled) {
-      setMedia({ uri: result.uri, type: 'image' });
-    }
-  };
-
-  const pickDocument = async () => {
-    let result = await DocumentPicker.getDocumentAsync({});
-
-    if (result.type !== 'cancel') {
-      setMedia({ uri: result.uri, type: 'document' });
-    }
   };
 
   return (
     <View style={styles.container}>
       <FlatList
-        data={messages}
+        data={groupedMessages}
+        keyExtractor={(item, index) => (item.type === 'date' ? `date-${item.label}` : item._id || index.toString())}
+        renderItem={({ item }) =>
+          item.type === 'date' ? (
+            <Text style={styles.dateHeader}>{item.label}</Text>
+          ) : (
+            <View
+              style={[
+                styles.message,
+                item.user._id === auth.currentUser.uid ? styles.sent : styles.received,
+              ]}
+            >
+              <Text style={styles.messageText}>{item.text}</Text>
+              <Text style={styles.timestamp}>
+                {moment(item.createdAt).format('h:mm A')}
+              </Text>
+            </View>
+          )
+        }
         inverted
-        keyExtractor={item => item._id}
-        renderItem={({ item }) => (
-          <View style={styles.message}>
-            <Text>{item.user.email}: {item.text}</Text>
-            {item.media && (
-              item.media.type === 'image' ? (
-                <Image source={{ uri: item.media.uri }} style={styles.image} />
-              ) : (
-                <Text>Document: {item.media.uri}</Text>
-              )
-            )}
-            <Text style={styles.timestamp}>{moment(item.createdAt).format('lll')}</Text>
-          </View>
-        )}
       />
       <View style={styles.inputContainer}>
-        <TouchableOpacity onPress={pickImage}>
-          <Text style={styles.addButton}>+</Text>
-        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="Type a message"
+          placeholderTextColor="gray"
           value={message}
           onChangeText={setMessage}
         />
@@ -121,38 +130,48 @@ const styles = StyleSheet.create({
     padding: 10,
     backgroundColor: '#fff',
   },
+  dateHeader: {
+    textAlign: 'center',
+    marginVertical: 10,
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#555',
+  },
   message: {
-    marginVertical: 5,
     padding: 10,
-    backgroundColor: '#eee',
-    borderRadius: 5,
+    marginVertical: 5,
+    borderRadius: 10,
+  },
+  sent: {
+    alignSelf: 'flex-end',
+    backgroundColor: '#dcf8c6',
+  },
+  received: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#f1f0f0',
+  },
+  messageText: {
+    fontSize: 16,
+    color: '#000', // Ensure the message text is visible (black)
   },
   timestamp: {
-    fontSize: 12,
-    color: '#999',
-    textAlign: 'right',
+    fontSize: 10,
+    color: 'gray',
+    marginTop: 5,
   },
   inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 10,
   },
   input: {
     flex: 1,
-    height: 40,
-    borderColor: '#ccc',
     borderWidth: 1,
-    paddingHorizontal: 10,
+    borderColor: 'gray',
+    borderRadius: 10,
+    padding: 10,
     marginRight: 10,
-  },
-  addButton: {
-    fontSize: 24,
-    marginRight: 10,
-  },
-  image: {
-    width: 100,
-    height: 100,
-    resizeMode: 'cover',
-    marginTop: 5,
+    color: '#000', // Ensure text in the input field is visible (black)
   },
 });
 

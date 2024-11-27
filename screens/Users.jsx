@@ -30,6 +30,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
   },
   user: {
+    color:'#000',
     padding: 20,
     borderBottomColor: '#ccc',
     borderBottomWidth: 1,
