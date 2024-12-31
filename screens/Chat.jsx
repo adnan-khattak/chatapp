@@ -7,19 +7,17 @@ const Chat = ({ route }) => {
   const { user } = route.params;
   const [message, setMessage] = useState('');
   const [groupedMessages, setGroupedMessages] = useState([]);
+  const chatId = [auth.currentUser.uid, user.uid].sort().join('_'); // Unique chat ID for both users
 
   useEffect(() => {
-    console.log("Fetching messages for current user:", auth.currentUser.uid);
-
     const unsubscribe = firestore
+      .collection('chats')
+      .doc(chatId)
       .collection('messages')
-      .where('users', 'array-contains', auth.currentUser.uid)
       .orderBy('createdAt', 'desc')
       .onSnapshot(
         (querySnapshot) => {
           if (!querySnapshot.empty) {
-            console.log("QuerySnapshot size:", querySnapshot.size);
-
             const messages = querySnapshot.docs.map((doc) => ({
               _id: doc.id,
               text: doc.data().text,
@@ -30,7 +28,7 @@ const Chat = ({ route }) => {
             const grouped = groupMessagesByDate(messages);
             setGroupedMessages(grouped);
           } else {
-            console.warn("No messages found for current user.");
+            console.warn("No messages found for this chat.");
           }
         },
         (error) => {
@@ -39,7 +37,7 @@ const Chat = ({ route }) => {
       );
 
     return () => unsubscribe();
-  }, []);
+  }, [chatId]);
 
   const groupMessagesByDate = (messages) => {
     const grouped = [];
@@ -57,7 +55,7 @@ const Chat = ({ route }) => {
       } else if (messageDate.isSame(yesterday, 'day')) {
         label = 'Yesterday';
       } else {
-        label = messageDate.format('LL'); // e.g., "October 1, 2024"
+        label = messageDate.format('LL');
       }
 
       if (currentLabel !== label) {
@@ -71,19 +69,41 @@ const Chat = ({ route }) => {
     return grouped;
   };
 
-  const handleSend = () => {
-    const { uid, email } = auth.currentUser;
+  const handleSend = async () => {
+    if (!message.trim()) return;
 
-    firestore.collection('messages').add({
+    const { uid, email } = auth.currentUser;
+    const newMessage = {
       text: message,
       createdAt: new Date(),
       user: {
         _id: uid,
         email,
       },
-      users: [uid, user.uid],
-    });
-    setMessage('');
+    };
+
+    try {
+      await firestore
+        .collection('chats')
+        .doc(chatId)
+        .collection('messages')
+        .add(newMessage);
+
+      // Ensure chat document exists and add participants
+      await firestore
+        .collection('chats')
+        .doc(chatId)
+        .set(
+          {
+            participants: [uid, user.uid],
+          },
+          { merge: true } // Prevent overwriting
+        );
+
+      setMessage('');
+    } catch (error) {
+      console.error("Error sending message:", error);
+    }
   };
 
   return (
@@ -152,7 +172,7 @@ const styles = StyleSheet.create({
   },
   messageText: {
     fontSize: 16,
-    color: '#000', // Ensure the message text is visible (black)
+    color: '#000',
   },
   timestamp: {
     fontSize: 10,
@@ -171,7 +191,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginRight: 10,
-    color: '#000', // Ensure text in the input field is visible (black)
+    color: '#000',
   },
 });
 
